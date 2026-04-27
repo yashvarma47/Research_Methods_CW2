@@ -518,74 +518,168 @@ with k4:
 
 # Chart 1: Treemap for hierarchical overview.
 st.subheader("1. Hierarchical burden overview")
-
-# Start from the latest filtered year and clean the numeric fields used by the treemap.
 tree_df = latest.copy()
 tree_df = tree_df.replace([np.inf, -np.inf], np.nan)
 tree_df[metric_col] = pd.to_numeric(tree_df[metric_col], errors="coerce").fillna(0)
 tree_df["emergency_share"] = pd.to_numeric(tree_df["emergency_share"], errors="coerce").clip(lower=0, upper=1).fillna(0)
 tree_df = tree_df[tree_df[metric_col] > 0].copy()
 
-# Use full labels so large rectangles keep their full names.
+# Keep short labels inside the boxes, but keep full labels for hover.
+tree_df["short_label"] = tree_df["label"].apply(lambda x: make_short_label(x, 48))
 tree_df["full_label"] = tree_df["label"].fillna(tree_df["code"]).fillna("Unknown category")
-tree_df["full_summary_label"] = tree_df["summary_label"].fillna("Unmapped summary")
-tree_df["full_3char_label"] = tree_df["label_3char"].fillna(tree_df["code_3char"]).fillna("Unmapped 3-character group")
-
-# Build the hierarchy depending on the selected abstraction level.
-if abstraction_label == "summary":
-    path = [px.Constant("All diagnoses"), "full_label"]
-elif abstraction_label == "3char":
-    path = [px.Constant("All diagnoses"), "full_summary_label", "full_label"]
-else:
-    path = [px.Constant("All diagnoses"), "full_summary_label", "full_3char_label", "full_label"]
+tree_df["summary_full_label"] = tree_df["summary_label"].fillna("Unmapped summary")
+tree_df["summary_short_label"] = tree_df["summary_full_label"].apply(lambda x: make_short_label(x, 48))
+tree_df["three_full_label"] = tree_df["label_3char"].fillna(tree_df["code_3char"]).fillna("Unmapped 3-character group")
+tree_df["three_short_label"] = tree_df["three_full_label"].apply(lambda x: make_short_label(x, 48))
 
 if tree_df.empty:
     st.warning("No positive values are available for the selected treemap metric and filters.")
 else:
     try:
-        # Build the treemap. If the hierarchy is incomplete, the fallback chart keeps the app usable.
-        fig_tree = px.treemap(
-            tree_df,
-            path=path,
-            values=metric_col,
-            color="emergency_share",
-            color_continuous_scale="RdBu_r",
-            template=PLOTLY_TEMPLATE if "PLOTLY_TEMPLATE" in globals() else "plotly_dark",
+        # Build the treemap manually rather than using px.treemap.
+        # This lets the visible box label stay short while the hover label is always full.
+        nodes = {}
+
+        def weighted_share(frame):
+            values = pd.to_numeric(frame[metric_col], errors="coerce").fillna(0)
+            shares = pd.to_numeric(frame["emergency_share"], errors="coerce").fillna(0)
+            total = values.sum()
+            if total <= 0:
+                return 0
+            return float((shares * values).sum() / total)
+
+        def add_node(node_id, parent_id, visible_label, full_label, value, colour):
+            nodes[node_id] = {
+                "id": node_id,
+                "parent": parent_id,
+                "label": visible_label,
+                "full": full_label,
+                "value": float(value) if pd.notna(value) else 0,
+                "colour": float(colour) if pd.notna(colour) else 0,
+            }
+
+        root_id = "root"
+        add_node(
+            root_id,
+            "",
+            "All diagnoses",
+            "All diagnoses",
+            tree_df[metric_col].sum(),
+            weighted_share(tree_df),
         )
 
-        fig_tree.update_traces(
-            textinfo="label",
-            texttemplate="%{label}",
-            textfont=dict(size=15),
-            hovertemplate=(
-                "<b>%{label}</b><br>"
-                "Burden: %{value:,.0f}<br>"
-                "Emergency share: %{color:.2%}<extra></extra>"
-            ),
-            marker=dict(line=dict(width=1, color="white")),
-            root_color="lightgrey",
+        if abstraction_label == "summary":
+            for _, row in tree_df.iterrows():
+                leaf_id = f"leaf|{row['code']}|{row['full_label']}"
+                add_node(
+                    leaf_id,
+                    root_id,
+                    row["short_label"],
+                    row["full_label"],
+                    row[metric_col],
+                    row["emergency_share"],
+                )
+
+        elif abstraction_label == "3char":
+            for summary_full, summary_group in tree_df.groupby("summary_full_label", dropna=False):
+                summary_id = f"summary|{summary_full}"
+                add_node(
+                    summary_id,
+                    root_id,
+                    make_short_label(summary_full, 48),
+                    summary_full,
+                    summary_group[metric_col].sum(),
+                    weighted_share(summary_group),
+                )
+
+                for _, row in summary_group.iterrows():
+                    leaf_id = f"leaf|{row['code']}|{row['full_label']}"
+                    add_node(
+                        leaf_id,
+                        summary_id,
+                        row["short_label"],
+                        row["full_label"],
+                        row[metric_col],
+                        row["emergency_share"],
+                    )
+
+        else:
+            for summary_full, summary_group in tree_df.groupby("summary_full_label", dropna=False):
+                summary_id = f"summary|{summary_full}"
+                add_node(
+                    summary_id,
+                    root_id,
+                    make_short_label(summary_full, 48),
+                    summary_full,
+                    summary_group[metric_col].sum(),
+                    weighted_share(summary_group),
+                )
+
+                for three_full, three_group in summary_group.groupby("three_full_label", dropna=False):
+                    three_id = f"three|{summary_full}|{three_full}"
+                    add_node(
+                        three_id,
+                        summary_id,
+                        make_short_label(three_full, 48),
+                        three_full,
+                        three_group[metric_col].sum(),
+                        weighted_share(three_group),
+                    )
+
+                    for _, row in three_group.iterrows():
+                        leaf_id = f"leaf|{row['code']}|{row['full_label']}"
+                        add_node(
+                            leaf_id,
+                            three_id,
+                            row["short_label"],
+                            row["full_label"],
+                            row[metric_col],
+                            row["emergency_share"],
+                        )
+
+        node_list = list(nodes.values())
+
+        fig_tree = go.Figure(
+            go.Treemap(
+                ids=[n["id"] for n in node_list],
+                labels=[n["label"] for n in node_list],
+                parents=[n["parent"] for n in node_list],
+                values=[n["value"] for n in node_list],
+                branchvalues="total",
+                customdata=np.array([[n["full"], n["colour"]] for n in node_list], dtype=object),
+                marker=dict(
+                    colors=[n["colour"] for n in node_list],
+                    colorscale="RdBu_r",
+                    cmin=0,
+                    cmax=1,
+                    line=dict(width=1, color="white"),
+                    colorbar=dict(title="Emergency share"),
+                ),
+                textinfo="label",
+                textfont=dict(size=15),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "Burden: %{value:,.0f}<br>"
+                    "Emergency share: %{customdata[1]:.2%}"
+                    "<extra></extra>"
+                ),
+            )
         )
 
         fig_tree.update_layout(
-            height=820,
+            template=PLOTLY_TEMPLATE,
+            height=740,
             margin=dict(t=30, l=10, r=10, b=10),
-            coloraxis_colorbar_title="Emergency share",
-            uniformtext=dict(minsize=9, mode="show"),
-            paper_bgcolor="#0E1117",
-            plot_bgcolor="#0E1117",
-            font=dict(color="white"),
+            uniformtext=dict(minsize=11, mode="hide"),
         )
 
         st.plotly_chart(fig_tree, use_container_width=True)
 
-    except Exception:
-        # Fallback keeps the dashboard usable even if Plotly cannot build the treemap.
-        st.warning(
-            "The treemap could not be drawn for the current filter combination because the hierarchy is incomplete or inconsistent. A ranked fallback view is shown instead."
-        )
-
+    except Exception as exc:
+        # Fallback keeps the dashboard usable even if Plotly cannot build a treemap.
+        st.warning("The treemap could not be drawn for the current filter combination because the hierarchy is incomplete or inconsistent. A ranked fallback view is shown instead.")
         fallback = tree_df.nlargest(min(top_n, len(tree_df)), metric_col).copy()
-        fallback["fallback_label"] = fallback["full_label"]
+        fallback["fallback_label"] = fallback["label"].apply(lambda x: make_short_label(x, 72))
 
         fig_fallback = px.bar(
             fallback,
@@ -594,26 +688,24 @@ else:
             orientation="h",
             color="emergency_share",
             color_continuous_scale="RdBu_r",
-            template=PLOTLY_TEMPLATE if "PLOTLY_TEMPLATE" in globals() else "plotly_dark",
-            custom_data=["full_label", "emergency_share"],
+            template=PLOTLY_TEMPLATE,
+            custom_data=["label", "emergency_share"],
         )
 
         fig_fallback.update_traces(
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
                 "Burden: %{x:,.0f}<br>"
-                "Emergency share: %{customdata[1]:.2%}<extra></extra>"
+                "Emergency share: %{customdata[1]:.2%}"
+                "<extra></extra>"
             )
         )
 
         fig_fallback.update_layout(
             height=max(440, 45 * len(fallback) + 120),
-            margin=dict(l=220, r=30, t=30, b=30),
+            margin=dict(l=160, r=30, t=30, b=30),
             yaxis_title="",
             xaxis_title=metric_option,
-            paper_bgcolor="#0E1117",
-            plot_bgcolor="#0E1117",
-            font=dict(color="white"),
         )
 
         st.plotly_chart(fig_fallback, use_container_width=True)
