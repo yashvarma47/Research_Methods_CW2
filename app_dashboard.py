@@ -355,6 +355,16 @@ def attach_hierarchy(df):
 @st.cache_data(show_spinner=True)
 def load_dataset(data_dir_str):
     """Load all NHS Excel files once, clean them, and return dashboard-ready tables."""
+    # Fast path: if a preprocessed pickle exists, load it instead of reading all Excel files.
+    # This makes local runs and Streamlit Cloud cold starts much quicker after the cache file is created.
+    cache_path = Path(__file__).resolve().parent / "nhs_dashboard_processed.pkl"
+    if cache_path.exists():
+        try:
+            cached = pd.read_pickle(cache_path)
+            return cached["tidy"], cached["age_long"]
+        except Exception:
+            pass
+
     # Find all yearly .xlsx files in the selected data folder.
     data_dir = Path(data_dir_str)
     files = sorted(glob.glob(str(data_dir / "hosp-epis-stat-admi-diag-20*-tab*.xlsx")))
@@ -410,6 +420,13 @@ def load_dataset(data_dir_str):
     )
     age_long["age_group_label"] = age_long["age_group"].map(AGE_LABELS)
     age_long["age_share_of_category"] = np.where(age_long["fce"] > 0, age_long["age_fce"] / age_long["fce"], np.nan)
+
+    # Save the processed tables for faster future starts.
+    # If the file cannot be written, the dashboard still works normally.
+    try:
+        pd.to_pickle({"tidy": tidy, "age_long": age_long}, cache_path)
+    except Exception:
+        pass
 
     return tidy, age_long
 
