@@ -518,55 +518,75 @@ with k4:
 
 # Chart 1: Treemap for hierarchical overview.
 st.subheader("1. Hierarchical burden overview")
+
+# Start from the latest filtered year and clean the numeric fields used by the treemap.
 tree_df = latest.copy()
 tree_df = tree_df.replace([np.inf, -np.inf], np.nan)
 tree_df[metric_col] = pd.to_numeric(tree_df[metric_col], errors="coerce").fillna(0)
 tree_df["emergency_share"] = pd.to_numeric(tree_df["emergency_share"], errors="coerce").clip(lower=0, upper=1).fillna(0)
 tree_df = tree_df[tree_df[metric_col] > 0].copy()
 
-# Use short labels for readability, but keep the code at the start so categories remain identifiable.
-tree_df["short_label"] = tree_df["label"].apply(lambda x: make_short_label(x, 48))
-tree_df["summary_short_label"] = tree_df["summary_label"].fillna("Unmapped summary").apply(lambda x: make_short_label(x, 48))
-tree_df["label_3char_short"] = tree_df["label_3char"].fillna(tree_df["code_3char"]).fillna("Unmapped 3-character group").apply(lambda x: make_short_label(x, 48))
+# Use full labels so large rectangles keep their full names.
+tree_df["full_label"] = tree_df["label"].fillna(tree_df["code"]).fillna("Unknown category")
+tree_df["full_summary_label"] = tree_df["summary_label"].fillna("Unmapped summary")
+tree_df["full_3char_label"] = tree_df["label_3char"].fillna(tree_df["code_3char"]).fillna("Unmapped 3-character group")
 
-# The treemap path changes depending on the selected abstraction level.
+# Build the hierarchy depending on the selected abstraction level.
 if abstraction_label == "summary":
-    path = [px.Constant("All diagnoses"), "short_label"]
+    path = [px.Constant("All diagnoses"), "full_label"]
 elif abstraction_label == "3char":
-    path = [px.Constant("All diagnoses"), "summary_short_label", "short_label"]
+    path = [px.Constant("All diagnoses"), "full_summary_label", "full_label"]
 else:
-    path = [px.Constant("All diagnoses"), "summary_short_label", "label_3char_short", "short_label"]
+    path = [px.Constant("All diagnoses"), "full_summary_label", "full_3char_label", "full_label"]
 
 if tree_df.empty:
     st.warning("No positive values are available for the selected treemap metric and filters.")
 else:
     try:
-        # Build the treemap. If the hierarchy is incomplete, the except block gives a fallback.
+        # Build the treemap. If the hierarchy is incomplete, the fallback chart keeps the app usable.
         fig_tree = px.treemap(
             tree_df,
             path=path,
             values=metric_col,
             color="emergency_share",
             color_continuous_scale="RdBu_r",
-            template=PLOTLY_TEMPLATE,
+            template=PLOTLY_TEMPLATE if "PLOTLY_TEMPLATE" in globals() else "plotly_dark",
         )
+
         fig_tree.update_traces(
             textinfo="label",
+            texttemplate="%{label}",
             textfont=dict(size=15),
-            hovertemplate="<b>%{label}</b><br>Burden: %{value:,.0f}<br>Emergency share: %{color:.2%}<extra></extra>",
+            hovertemplate=(
+                "<b>%{label}</b><br>"
+                "Burden: %{value:,.0f}<br>"
+                "Emergency share: %{color:.2%}<extra></extra>"
+            ),
+            marker=dict(line=dict(width=1, color="white")),
+            root_color="lightgrey",
         )
+
         fig_tree.update_layout(
-            height=740,
+            height=820,
             margin=dict(t=30, l=10, r=10, b=10),
             coloraxis_colorbar_title="Emergency share",
-            uniformtext=dict(minsize=11, mode="hide"),
+            uniformtext=dict(minsize=9, mode="show"),
+            paper_bgcolor="#0E1117",
+            plot_bgcolor="#0E1117",
+            font=dict(color="white"),
         )
+
         st.plotly_chart(fig_tree, use_container_width=True)
-    except Exception as exc:
-        # Fallback keeps the dashboard usable even if Plotly cannot build a treemap.
-        st.warning("The treemap could not be drawn for the current filter combination because the hierarchy is incomplete or inconsistent. A ranked fallback view is shown instead.")
+
+    except Exception:
+        # Fallback keeps the dashboard usable even if Plotly cannot build the treemap.
+        st.warning(
+            "The treemap could not be drawn for the current filter combination because the hierarchy is incomplete or inconsistent. A ranked fallback view is shown instead."
+        )
+
         fallback = tree_df.nlargest(min(top_n, len(tree_df)), metric_col).copy()
-        fallback["fallback_label"] = fallback["label"].apply(lambda x: make_short_label(x, 72))
+        fallback["fallback_label"] = fallback["full_label"]
+
         fig_fallback = px.bar(
             fallback,
             x=metric_col,
@@ -574,16 +594,30 @@ else:
             orientation="h",
             color="emergency_share",
             color_continuous_scale="RdBu_r",
-            template=PLOTLY_TEMPLATE,
-            custom_data=["label", "emergency_share"],
+            template=PLOTLY_TEMPLATE if "PLOTLY_TEMPLATE" in globals() else "plotly_dark",
+            custom_data=["full_label", "emergency_share"],
         )
+
         fig_fallback.update_traces(
-            hovertemplate="<b>%{customdata[0]}</b><br>Burden: %{x:,.0f}<br>Emergency share: %{customdata[1]:.2%}<extra></extra>"
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Burden: %{x:,.0f}<br>"
+                "Emergency share: %{customdata[1]:.2%}<extra></extra>"
+            )
         )
-        fig_fallback.update_layout(height=max(440, 45 * len(fallback) + 120), margin=dict(l=160, r=30, t=30, b=30), yaxis_title="", xaxis_title=metric_option)
+
+        fig_fallback.update_layout(
+            height=max(440, 45 * len(fallback) + 120),
+            margin=dict(l=220, r=30, t=30, b=30),
+            yaxis_title="",
+            xaxis_title=metric_option,
+            paper_bgcolor="#0E1117",
+            plot_bgcolor="#0E1117",
+            font=dict(color="white"),
+        )
+
         st.plotly_chart(fig_fallback, use_container_width=True)
 
-# Chart 2: Heatmap comparing every year against the 2019-20 baseline.
 st.subheader("2. Change vs pre COVID baseline")
 
 baseline_year = "2019-20"
