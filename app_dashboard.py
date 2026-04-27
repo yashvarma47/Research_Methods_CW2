@@ -17,24 +17,42 @@ st.markdown(
     """
     <style>
     .stApp {
-        background-color: white;
-        color: #222222;
+        background-color: #0E1117;
+        color: #F5F5F5;
     }
+
     .block-container {
         padding-top: 1rem;
         padding-bottom: 2rem;
     }
+
     .metric-card {
-        background: #ffffff;
-        border: 1px solid #e8e8e8;
+        background: #1B1F2A;
+        border: 1px solid #303747;
         border-radius: 14px;
         padding: 16px 18px;
-        box-shadow: 0 1px 6px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 8px rgba(0,0,0,0.35);
+        color: #F5F5F5;
+    }
+
+    h1, h2, h3, h4, h5, h6, p, label {
+        color: #F5F5F5 !important;
+    }
+
+    [data-testid="stSidebar"] {
+        background-color: #111827 !important;
+    }
+
+    [data-testid="stSidebar"] * {
+        color: #F5F5F5 !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+# Shared Plotly template so all charts follow the dark dashboard style.
+PLOTLY_TEMPLATE = "plotly_dark"
 
 # NHS workbook sheet names are not exactly the same every year, so aliases are needed.
 SHEET_ALIASES = {
@@ -513,7 +531,7 @@ else:
             values=metric_col,
             color="emergency_share",
             color_continuous_scale="RdBu_r",
-            template="plotly_white",
+            template=PLOTLY_TEMPLATE,
         )
         fig_tree.update_traces(
             textinfo="label",
@@ -539,7 +557,7 @@ else:
             orientation="h",
             color="emergency_share",
             color_continuous_scale="RdBu_r",
-            template="plotly_white",
+            template=PLOTLY_TEMPLATE,
             custom_data=["label", "emergency_share"],
         )
         fig_fallback.update_traces(
@@ -766,8 +784,8 @@ try:
                 y=-0.9,
                 text="Lockdown year 2020-21",
                 showarrow=False,
-                font=dict(size=11, color="#7A4F00"),
-                bgcolor="rgba(255,255,255,0.92)",
+                font=dict(size=11, color="#F2A900"),
+                bgcolor="rgba(14,17,23,0.92)",
                 bordercolor="#F2A900",
                 borderwidth=1,
             )
@@ -776,35 +794,35 @@ try:
         fig_heat.update_layout(
             height=790,
             margin=dict(l=275, r=65, t=35, b=90),
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            font=dict(color="black"),
+            paper_bgcolor="#0E1117",
+            plot_bgcolor="#0E1117",
+            font=dict(color="white"),
             coloraxis=dict(
                 colorscale=baseline_colour_scale,
                 cmin=zmin,
                 cmax=zmax,
                 colorbar=dict(
-                    title=dict(text=color_title, font=dict(color="black")),
-                    tickfont=dict(color="black"),
+                    title=dict(text=color_title, font=dict(color="white")),
+                    tickfont=dict(color="white"),
                     len=0.78,
                 ),
             ),
             xaxis=dict(
-                title=dict(text="Financial year", font=dict(color="black")),
+                title=dict(text="Financial year", font=dict(color="white")),
                 tickmode="array",
                 tickvals=x_vals,
                 ticktext=x_order,
                 tickangle=-35,
-                tickfont=dict(color="black"),
+                tickfont=dict(color="white"),
                 showgrid=False,
                 zeroline=False,
             ),
             yaxis=dict(
-                title=dict(text="Primary diagnosis summary category", font=dict(color="black")),
+                title=dict(text="Primary diagnosis summary category", font=dict(color="white")),
                 tickmode="array",
                 tickvals=y_vals,
                 ticktext=y_order,
-                tickfont=dict(size=11, color="black"),
+                tickfont=dict(size=11, color="white"),
                 autorange="reversed",
                 showgrid=False,
                 zeroline=False,
@@ -860,7 +878,7 @@ if not radar_df.empty:
     for _, row in norm.iterrows():
         r = [row[m] for m in radar_metrics]
         fig_radar.add_trace(go.Scatterpolar(r=r + [r[0]], theta=theta + [theta[0]], fill="toself", name=row["label"]))
-    fig_radar.update_layout(template="plotly_white", height=600, polar=dict(radialaxis=dict(visible=True, range=[0, 1])))
+    fig_radar.update_layout(template=PLOTLY_TEMPLATE, height=600, polar=dict(radialaxis=dict(visible=True, range=[0, 1])))
     st.plotly_chart(fig_radar, use_container_width=True)
 
 # Chart 4: Violin plot for age-group distribution.
@@ -877,7 +895,7 @@ fig_violin = px.violin(
     color="age_group_label",
     box=True,
     points=False,
-    template="plotly_white",
+    template=PLOTLY_TEMPLATE,
 )
 fig_violin.update_layout(height=650, xaxis_title="Age group", yaxis_title="Share of category FCE")
 st.plotly_chart(fig_violin, use_container_width=True)
@@ -907,7 +925,7 @@ fig_parallel = px.parallel_coordinates(
     color_continuous_scale=px.colors.sequential.Blues,
 )
 fig_parallel.update_layout(
-    template="plotly_white",
+    template=PLOTLY_TEMPLATE,
     height=650,
     margin=dict(l=120, r=35, t=35, b=25),
 )
@@ -957,7 +975,7 @@ else:
         orientation="h",
         category_orders={"short_stack_label": order},
         barmode="stack",
-        template="plotly_white",
+        template=PLOTLY_TEMPLATE,
         custom_data=["label", "admission_type", "value"],
     )
     fig_stack.update_traces(
